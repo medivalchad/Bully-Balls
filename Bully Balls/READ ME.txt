@@ -1,0 +1,19 @@
+*READ ME*
+
+Thank you for downloading Bully Balls. Hope you enjoy the game.
+
+1. Installation - I you have downloaded the game through itch.io, You will be downloaded with a .zip file. You may have to
+use softwares like WinRAR or 7zip to extract the game content files. Once you have successfully extracted the files, you will
+be presented with Bully Balls folder. Open the folder and run the App named "bull_balls" and that's it. Enjoy the game!
+
+Note: If you have any antivirus software or even windows defender turned on, you may be prompted with harmful file pop box,
+don't worry, it's because our game is develped by Python programming language using Pygame assets. Even installation medium
+was through Pyinstaller. For windows defender shows don't run option, click on more info and then click on Run anyway.
+
+2. Gameplay instructions and everything you need to know about the game is available in the game menu itself. Read instructions
+before playing the game. You can turn off the game audio in the pause menu. Press Esc key on keyboard for pausing the game.
+
+3. Don't forget to give us your valuable feedbacks about anything related to the game. We listen to our users. And if possible, 
+do consider donating to us as we can bring out newer projects to you.
+
+Thanks. Enjoy the game.
