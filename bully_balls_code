@@ -1,0 +1,941 @@
+import pygame
+import random
+import sys
+
+# Initialize Pygame
+pygame.init()
+pygame.mixer.init()
+
+# Load sounds (replace with your actual sound files or comment out if missing)
+bg_music = "background_music.mp3"
+explosion_sound = pygame.mixer.Sound("explosion.wav")
+ball_hit_sound = pygame.mixer.Sound("ball_hit.wav")
+power_up_sound = pygame.mixer.Sound("power_up.wav")
+click_sound = pygame.mixer.Sound("click.wav")
+
+# Play background music
+pygame.mixer.music.load(bg_music)
+pygame.mixer.music.play(-1)
+pygame.mixer.music.set_volume(0.1)
+
+# Constants
+WIDTH = 600
+HEIGHT = 700
+BOUNDARY_SIZE = 600
+UI_HEIGHT = 100
+FPS = 60
+
+# Colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+ORANGE = (255, 165, 0)
+BLUE = (0, 0, 255)
+CEMENT_COLOR = (150, 150, 150)
+GRAY = (50, 50, 50)
+LIGHT_GRAY = (200, 200, 200)
+RED = (255, 0, 0)
+IMMUNITY_BUBBLE = (0, 255, 0, 100)
+SKY_BLUE = (173, 216, 230)
+
+# Game class
+class Game:
+    def __init__(self):
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        pygame.display.set_caption("Bully Balls")
+        self.clock = pygame.time.Clock()
+        self.font = pygame.font.SysFont("Comic Sans MS", 36)
+        self.small_font = pygame.font.SysFont("Comic Sans MS", 24)
+        self.tiny_font = pygame.font.SysFont("Comic Sans MS", 18)
+        self.continue_font = pygame.font.SysFont("Comic Sans MS", 22)
+        self.challenge_font = pygame.font.SysFont("Comic Sans MS", 20)
+        self.state = "menu"
+        self.sound_on = True
+        self.start_time = 0
+        self.completion_time = 0
+        self.power_ups = {"pause": True, "slow": True, "remove": True}
+        self.active_power_up = None
+        self.power_up_timer = 0
+        self.power_up_used = False
+        self.immunity_timer = 0
+        self.challenge_deaths = 0
+        self.challenge_power_ups_used = False
+        self.challenge_name = None
+        self.reset_game()
+
+    def reset_game(self):
+        self.lives = 3
+        self.round = 1  # Start at Round 8 for testing
+        self.total_area = BOUNDARY_SIZE * BOUNDARY_SIZE
+        self.cement_filled = 0  # 89% filled to trigger completion quickly
+        self.generator = Generator()
+        self.balls = [Ball() for _ in range(self.round + 1)]  # 9 balls for Round 8
+        self.cement_surfaces = []
+        self.respawn_timer = 0
+        self.immunity_timer = 0
+        self.start_time = pygame.time.get_ticks()
+        self.completion_time = 0
+        self.power_ups = {"pause": True, "slow": True, "remove": True}
+        self.active_power_up = None
+        self.power_up_timer = 0
+        self.power_up_used = False
+        self.challenge_deaths = 0
+        self.challenge_power_ups_used = False
+        self.challenge_name = None
+        print("Game reset: Starting at Round 8, 89% filled")
+
+    def play_sound(self, sound):
+        if self.sound_on:
+            sound.play()
+
+    def main_menu(self):
+        try:
+            background = pygame.image.load('mainmenu1.jpg').convert()
+            background = pygame.transform.scale(background, (WIDTH, HEIGHT))
+        except pygame.error:
+            background = None
+            print("Failed to load background image, using sky blue background")
+
+        while self.state == "menu":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    # Feedback button at top-left
+                    if 10 < x < 110 and 10 < y < 50:
+                        self.play_sound(click_sound)
+                        self.state = "feedback"
+                    elif 200 < x < 400 and 300 < y < 360:
+                        self.play_sound(click_sound)
+                        self.state = "game"
+                    elif 200 < x < 400 and 380 < y < 440:
+                        self.play_sound(click_sound)
+                        self.state = "instructions"
+                    elif 200 < x < 400 and 460 < y < 520:
+                        self.play_sound(click_sound)
+                        self.state = "challenges"
+                    elif 200 < x < 400 and 540 < y < 600:
+                        self.play_sound(click_sound)
+                        self.state = "credits"
+                    elif 200 < x < 400 and 620 < y < 680:
+                        self.play_sound(click_sound)
+                        pygame.quit()
+                        sys.exit()
+
+            if background:
+                self.screen.blit(background, (0, 0))
+            else:
+                self.screen.fill(SKY_BLUE)
+
+            # Feedback button (top-left)
+            feedback_surface = pygame.Surface((100, 40), pygame.SRCALPHA)
+            pygame.draw.rect(feedback_surface, (*ORANGE, 200), (0, 0, 100, 40), 0, 10)
+            pygame.draw.rect(feedback_surface, WHITE, (0, 0, 100, 40), 2, 10)
+            self.screen.blit(feedback_surface, (10, 10))
+            feedback_text = self.tiny_font.render("Feedback", True, BLACK)
+            self.screen.blit(feedback_text, (60 - feedback_text.get_width() // 2, 30 - feedback_text.get_height() // 2))
+
+            title = self.font.render("Bully Balls", True, BLACK)
+            title_shadow = self.font.render("Bully Balls", True, (100, 100, 100))
+            self.screen.blit(title_shadow, (WIDTH // 2 - title.get_width() // 2 + 2, 152))
+            self.screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 150))
+
+            button_surface = pygame.Surface((200, 60), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 200, 60), 0, 15)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 200, 60), 2, 15)
+
+            self.screen.blit(button_surface, (200, 300))
+            start = self.small_font.render("Start Game", True, BLACK)
+            self.screen.blit(start, (300 - start.get_width() // 2, 330 - start.get_height() // 2))
+
+            self.screen.blit(button_surface, (200, 380))
+            instructions = self.small_font.render("Instructions", True, BLACK)
+            self.screen.blit(instructions, (300 - instructions.get_width() // 2, 410 - instructions.get_height() // 2))
+
+            self.screen.blit(button_surface, (200, 460))
+            challenges = self.small_font.render("Challenges", True, BLACK)
+            self.screen.blit(challenges, (300 - challenges.get_width() // 2, 490 - challenges.get_height() // 2))
+
+            self.screen.blit(button_surface, (200, 540))
+            credits = self.small_font.render("Credits", True, BLACK)
+            self.screen.blit(credits, (300 - credits.get_width() // 2, 570 - credits.get_height() // 2))
+
+            self.screen.blit(button_surface, (200, 620))
+            quit_text = self.small_font.render("Quit", True, BLACK)
+            self.screen.blit(quit_text, (300 - quit_text.get_width() // 2, 650 - quit_text.get_width() // 2))
+
+            pygame.display.flip()
+
+    def credits_menu(self):
+        while self.state == "credits":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 250 < x < 350 and 450 < y < 490:
+                        self.play_sound(click_sound)
+                        self.state = "menu"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((400, 300), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 400, 300), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 400, 300), 2, 10)
+            self.screen.blit(panel_surface, (100, 200))
+
+            title = self.font.render("Credits", True, BLACK)
+            self.screen.blit(title, (300 - title.get_width() // 2, 230))
+
+            text_lines = [
+                "Developed with Sans Studio!",
+                "Developers:",
+                "1. Shree Harsha K V",
+                "2. Chethan Srihari A"
+            ]
+            for i, line in enumerate(text_lines):
+                render = self.small_font.render(line, True, BLACK)
+                self.screen.blit(render, (300 - render.get_width() // 2, 280 + i * 35))
+
+            button_surface = pygame.Surface((100, 40), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 100, 40), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 100, 40), 2, 10)
+            self.screen.blit(button_surface, (250, 450))
+            close = self.small_font.render("Close", True, BLACK)
+            self.screen.blit(close, (300 - close.get_width() // 2, 470 - close.get_height() // 2))
+
+            pygame.display.flip()
+
+    def challenges_menu(self):
+        while self.state == "challenges":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.play_sound(click_sound)
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 250 < x < 350 and 500 < y < 540:
+                        self.play_sound(click_sound)
+                        self.state = "menu"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((450, 400), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 450, 400), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 450, 400), 2, 10)
+            self.screen.blit(panel_surface, (75, 150))
+
+            title = self.font.render("Challenges", True, BLACK)
+            self.screen.blit(title, (300 - title.get_width() // 2, 180))
+
+            text_lines = [
+                "1. The Man: Complete the game under",
+                "   4:45 minutes.",
+                "2. The Myth: Complete the game under",
+                "   4:45 minutes, without dying.",
+                "3. The Legend: Complete the game under",
+                "   4:15 minutes, without dying and",
+                "   activating any power ups."
+            ]
+            for i, line in enumerate(text_lines):
+                render = self.challenge_font.render(line, True, BLACK)
+                self.screen.blit(render, (95, 240 + i * 30))
+
+            button_surface = pygame.Surface((100, 40), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 100, 40), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 100, 40), 2, 10)
+            self.screen.blit(button_surface, (250, 500))
+            close = self.small_font.render("Close", True, BLACK)
+            self.screen.blit(close, (300 - close.get_width() // 2, 520 - close.get_height() // 2))
+
+            pygame.display.flip()
+
+    def instructions(self):
+        while self.state == "instructions":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.play_sound(click_sound)
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 250 < x < 350 and 500 < y < 540:
+                        self.play_sound(click_sound)
+                        self.state = "menu"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((500, 400), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 500, 400), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 500, 400), 2, 10)
+            self.screen.blit(panel_surface, (50, 150))
+
+            text = [
+                "Objective: Fill 90% of area with cement",
+                "Controls: W,A,S,D to move, ESC to pause",
+                "Danger: Avoid colored balls!",
+                "Lives: 3 lives in the beginning",
+                "Rounds: 8 rounds, more balls each round",
+                "Power-ups: From round 6 (E to activate)"
+            ]
+            for i, line in enumerate(text):
+                render = self.small_font.render(line, True, BLACK)
+                self.screen.blit(render, (70, 200 + i * 35))
+
+            button_surface = pygame.Surface((100, 40), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 100, 40), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 100, 40), 2, 10)
+            self.screen.blit(button_surface, (250, 500))
+            close = self.small_font.render("Close", True, BLACK)
+            self.screen.blit(close, (300 - close.get_width() // 2, 520 - close.get_height() // 2))
+            pygame.display.flip()
+
+    def power_up_menu(self):
+        while self.state == "power_up":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.play_sound(click_sound)
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if self.power_ups["pause"] and 120 < x < 170 and 280 < y < 330:
+                        self.play_sound(click_sound)
+                        self.active_power_up = "pause"
+                        self.power_ups["pause"] = False
+                        self.state = "game"
+                    elif self.power_ups["slow"] and 120 < x < 170 and 340 < y < 390:
+                        self.play_sound(click_sound)
+                        self.active_power_up = "slow"
+                        self.power_ups["slow"] = False
+                        self.state = "game"
+                    elif self.power_ups["remove"] and 120 < x < 170 and 400 < y < 450:
+                        self.play_sound(click_sound)
+                        self.active_power_up = "remove"
+                        self.power_ups["remove"] = False
+                        self.state = "game"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((400, 350), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 400, 350), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 400, 350), 2, 10)
+            self.screen.blit(panel_surface, (100, 200))
+
+            title = self.font.render("Choose a Power-up", True, BLACK)
+            self.screen.blit(title, (300 - title.get_width() // 2, 220))
+
+            button_surface = pygame.Surface((50, 50), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 50, 50), 0, 10)
+
+            if self.power_ups["pause"]:
+                self.screen.blit(button_surface, (120, 280))
+                pause_icon = self.small_font.render("P", True, BLACK)
+                self.screen.blit(pause_icon, (145 - pause_icon.get_width() // 2, 305 - pause_icon.get_height() // 2))
+            pause_text = self.small_font.render("Pauses balls for 5s", True, BLACK)
+            self.screen.blit(pause_text, (180, 295))
+
+            if self.power_ups["slow"]:
+                self.screen.blit(button_surface, (120, 340))
+                slow_icon = self.small_font.render("S", True, BLACK)
+                self.screen.blit(slow_icon, (145 - slow_icon.get_width() // 2, 365 - slow_icon.get_height() // 2))
+            slow_text = self.small_font.render("Slows balls for 5s", True, BLACK)
+            self.screen.blit(slow_text, (180, 355))
+
+            if self.power_ups["remove"]:
+                self.screen.blit(button_surface, (120, 400))
+                remove_icon = self.small_font.render("R", True, BLACK)
+                self.screen.blit(remove_icon, (145 - remove_icon.get_width() // 2, 425 - remove_icon.get_height() // 2))
+            remove_text = self.small_font.render("Removes 1 ball", True, BLACK)
+            self.screen.blit(remove_text, (180, 415))
+
+            instruction = self.small_font.render("Press 'E' to activate in-game", True, BLACK)
+            self.screen.blit(instruction, (300 - instruction.get_width() // 2, 480))
+
+            pygame.display.flip()
+
+    def pause_menu(self):
+        while self.state == "pause":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        self.state = "game"
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 200 < x < 400 and 300 < y < 360:
+                        self.play_sound(click_sound)
+                        self.state = "game"
+                    elif 200 < x < 400 and 380 < y < 440:
+                        self.play_sound(click_sound)
+                        self.sound_on = not self.sound_on
+                        if self.sound_on:
+                            pygame.mixer.music.play(-1)
+                        else:
+                            pygame.mixer.music.stop()
+                    elif 200 < x < 400 and 460 < y < 520:
+                        self.play_sound(click_sound)
+                        pygame.quit()
+                        sys.exit()
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((300, 350), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 300, 350), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 300, 350), 2, 10)
+            self.screen.blit(panel_surface, (150, 225))
+
+            pause = self.font.render("Paused", True, BLACK)
+            pause_x = 150 + (300 - pause.get_width()) // 2
+            pause_y = 225 + 30
+            self.screen.blit(pause, (pause_x, pause_y))
+
+            button_surface = pygame.Surface((200, 60), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 200, 60), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 200, 60), 2, 10)
+
+            self.screen.blit(button_surface, (200, 300))
+            resume = self.small_font.render("Resume", True, BLACK)
+            self.screen.blit(resume, (300 - resume.get_width() // 2, 330 - resume.get_height() // 2))
+
+            self.screen.blit(button_surface, (200, 380))
+            sound_text = "Sound: On" if self.sound_on else "Sound: Off"
+            sound = self.small_font.render(sound_text, True, BLACK)
+            self.screen.blit(sound, (300 - sound.get_width() // 2, 410 - sound.get_height() // 2))
+
+            self.screen.blit(button_surface, (200, 460))
+            quit_text = self.small_font.render("Quit", True, BLACK)
+            self.screen.blit(quit_text, (300 - quit_text.get_width() // 2, 490 - quit_text.get_height() // 2))
+
+            pygame.display.flip()
+
+    def death_menu(self):
+        while self.state == "death":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 180 < x < 280 and 380 < y < 440:
+                        self.play_sound(click_sound)
+                        self.reset_game()
+                        self.state = "game"
+                    elif 320 < x < 420 and 380 < y < 440:
+                        self.play_sound(click_sound)
+                        pygame.quit()
+                        sys.exit()
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((300, 250), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 300, 250), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 300, 250), 2, 10)
+            self.screen.blit(panel_surface, (150, 250))
+
+            death = self.font.render("Game Over!", True, BLACK)
+            self.screen.blit(death, (300 - death.get_width() // 2, 280))
+
+            button_surface = pygame.Surface((100, 60), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 100, 60), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 100, 60), 2, 10)
+
+            self.screen.blit(button_surface, (180, 380))
+            restart = self.small_font.render("Restart", True, BLACK)
+            self.screen.blit(restart, (230 - restart.get_width() // 2, 410 - restart.get_height() // 2))
+
+            self.screen.blit(button_surface, (320, 380))
+            quit_text = self.small_font.render("Quit", True, BLACK)
+            self.screen.blit(quit_text, (370 - quit_text.get_width() // 2, 410 - quit_text.get_height() // 2))
+
+            pygame.display.flip()
+
+    def completed_menu(self):
+        print("Entered completed_menu()")
+        total_seconds = self.completion_time // 1000
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        print(f"Completion time: {total_seconds} seconds")
+
+        while self.state == "completed":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    print(f"Mouse clicked at: ({x}, {y})")
+                    if 200 < x < 400 and 400 < y < 460:
+                        print("Restart Game clicked")
+                        self.play_sound(click_sound)
+                        self.reset_game()
+                        self.state = "game"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((300, 330), pygame.SRCALPHA)  # Adjusted height
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 300, 330), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 300, 330), 2, 10)
+            self.screen.blit(panel_surface, (150, 250))
+
+            completed = self.font.render("Game Completed!", True, BLACK)
+            self.screen.blit(completed, (300 - completed.get_width() // 2, 280))
+
+            time_text = self.small_font.render(f"Time Taken: {minutes}:{seconds:02d}", True, BLACK)
+            self.screen.blit(time_text, (300 - time_text.get_width() // 2, 340))
+
+            button_surface = pygame.Surface((200, 60), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 200, 60), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 200, 60), 2, 10)
+
+            self.screen.blit(button_surface, (200, 400))
+            restart = self.small_font.render("Restart Game", True, BLACK)
+            self.screen.blit(restart, (300 - restart.get_width() // 2, 430 - restart.get_height() // 2))
+
+            pygame.display.flip()
+
+    def feedback_menu(self):
+        while self.state == "feedback":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 250 < x < 350 and 500 < y < 540:
+                        self.play_sound(click_sound)
+                        self.state = "menu"  # Return to main menu
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((500, 350), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 500, 350), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 500, 350), 2, 10)
+            self.screen.blit(panel_surface, (50, 200))
+
+            text_lines = [
+                "Please share your valuable inputs,",
+                "opinions and any other game related",
+                "bugs at:",
+                "studiosans821@gmail.com",
+                "If possible donate us, so that",
+                "we can publish more projects",
+                "like this, Thanks."
+            ]
+            for i, line in enumerate(text_lines):
+                render = self.small_font.render(line, True, BLACK)
+                self.screen.blit(render, (300 - render.get_width() // 2, 230 + i * 35))
+
+            button_surface = pygame.Surface((100, 40), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 100, 40), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 100, 40), 2, 10)
+            self.screen.blit(button_surface, (250, 500))
+            close = self.small_font.render("Close", True, BLACK)
+            self.screen.blit(close, (300 - close.get_width() // 2, 520 - close.get_height() // 2))
+
+            pygame.display.flip()
+
+    def challenge_completed_menu(self):
+        total_seconds = self.completion_time // 1000
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+
+        while self.state == "challenge_completed":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 200 < x < 400 and 450 < y < 510:
+                        self.play_sound(click_sound)
+                        self.reset_game()
+                        self.state = "game"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((350, 350), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 350, 350), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 350, 350), 2, 10)
+            self.screen.blit(panel_surface, (125, 250))
+
+            congrats = self.font.render("Congratulations", True, BLACK)
+            self.screen.blit(congrats, (300 - congrats.get_width() // 2, 280))
+
+            challenge_text = self.challenge_font.render("You have completed the challenge,", True, BLACK)
+            challenge_text2 = self.challenge_font.render(f"\"{self.challenge_name}\"", True, BLACK)
+            self.screen.blit(challenge_text, (300 - challenge_text.get_width() // 2, 330))
+            self.screen.blit(challenge_text2, (300 - challenge_text2.get_width() // 2, 355))
+
+            time_text = self.small_font.render(f"Time Taken: {minutes}:{seconds:02d}", True, BLACK)
+            self.screen.blit(time_text, (300 - time_text.get_width() // 2, 380))
+
+            button_surface = pygame.Surface((200, 60), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 200, 60), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 200, 60), 2, 10)
+            self.screen.blit(button_surface, (200, 450))
+            restart = self.small_font.render("Restart Game", True, BLACK)
+            self.screen.blit(restart, (300 - restart.get_width() // 2, 480 - restart.get_height() // 2))
+
+            pygame.display.flip()
+
+    def round_complete_menu(self):
+        while self.state == "round_complete":
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 180 < x < 280 and 380 < y < 440:
+                        self.play_sound(click_sound)
+                        self.cement_filled = 0
+                        self.cement_surfaces = []
+                        self.balls = [Ball() for _ in range(self.round + 1)]
+                        self.generator.reset()
+                        self.state = "game"
+                    elif 320 < x < 420 and 380 < y < 440:
+                        self.play_sound(click_sound)
+                        self.round += 1
+                        self.lives += 1
+                        self.cement_filled = 0
+                        self.cement_surfaces = []
+                        self.power_up_used = False
+                        self.balls = [Ball() for _ in range(self.round + 1)]
+                        self.generator.reset()
+                        if self.round > 5:
+                            self.state = "power_up"
+                        else:
+                            self.state = "game"
+
+            self.screen.fill(SKY_BLUE)
+            panel_surface = pygame.Surface((300, 300), pygame.SRCALPHA)
+            pygame.draw.rect(panel_surface, (*LIGHT_GRAY, 180), (0, 0, 300, 300), 0, 10)
+            pygame.draw.rect(panel_surface, WHITE, (0, 0, 300, 300), 2, 10)
+            self.screen.blit(panel_surface, (150, 200))
+
+            title = self.font.render("Round Complete!", True, BLACK)
+            self.screen.blit(title, (300 - title.get_width() // 2, 240))
+
+            message = self.small_font.render(f"Proceed to Round {self.round + 1}?", True, BLACK)
+            self.screen.blit(message, (300 - message.get_width() // 2, 300))
+
+            button_surface = pygame.Surface((100, 60), pygame.SRCALPHA)
+            pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 100, 60), 0, 10)
+            pygame.draw.rect(button_surface, WHITE, (0, 0, 100, 60), 2, 10)
+
+            self.screen.blit(button_surface, (180, 380))
+            retry_text = self.small_font.render("Retry", True, BLACK)
+            self.screen.blit(retry_text, (230 - retry_text.get_width() // 2, 410 - retry_text.get_height() // 2))
+
+            self.screen.blit(button_surface, (320, 380))
+            continue_text = self.continue_font.render("Continue", True, BLACK)
+            self.screen.blit(continue_text,
+                            (370 - continue_text.get_width() // 2, 410 - continue_text.get_height() // 2))
+
+            pygame.display.flip()
+
+    def run(self):
+        while True:
+            if self.state == "menu":
+                self.main_menu()
+            elif self.state == "instructions":
+                self.instructions()
+            elif self.state == "challenges":
+                self.challenges_menu()
+            elif self.state == "credits":
+                self.credits_menu()
+            elif self.state == "pause":
+                self.pause_menu()
+            elif self.state == "death":
+                self.death_menu()
+            elif self.state == "completed":
+                self.completed_menu()
+            elif self.state == "feedback":
+                self.feedback_menu()
+            elif self.state == "challenge_completed":
+                self.challenge_completed_menu()
+            elif self.state == "power_up":
+                self.power_up_menu()
+            elif self.state == "round_complete":
+                self.round_complete_menu()
+            elif self.state == "game":
+                self.game_loop()
+
+    def game_loop(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    self.state = "pause"
+                elif (event.key == pygame.K_e and self.active_power_up and
+                      self.round > 5 and self.power_up_timer == 0 and not self.power_up_used):
+                    self.play_sound(power_up_sound)
+                    self.power_up_timer = 5 * FPS
+                    self.power_up_used = True
+                    self.challenge_power_ups_used = True
+                    if self.active_power_up == "remove" and self.balls:
+                        self.balls.pop()
+
+        if self.respawn_timer > 0:
+            self.respawn_timer -= 1
+            if self.respawn_timer == 0 and self.lives > 0:
+                self.generator.reset()
+                self.immunity_timer = 2 * FPS
+
+        if self.power_up_timer > 0:
+            self.power_up_timer -= 1
+
+        if self.immunity_timer > 0:
+            self.immunity_timer -= 1
+
+        if self.generator.alive and self.respawn_timer == 0:
+            self.generator.update()
+            for ball in self.balls:
+                if self.power_up_timer > 0 and self.active_power_up == "pause":
+                    continue
+                ball.update(self.power_up_timer > 0 and self.active_power_up == "slow")
+
+                if self.immunity_timer == 0 and (abs(ball.x - self.generator.x) < 20 and
+                                                abs(ball.y - self.generator.y) < 20):
+                    self.play_sound(explosion_sound)
+                    self.generator.explode()
+                    self.lives -= 1
+                    self.challenge_deaths += 1
+                    if self.lives > 0:
+                        self.respawn_timer = 180
+                    else:
+                        self.state = "death"
+                    break
+
+                for cement in self.cement_surfaces[:]:
+                    if (abs(ball.x - cement[0]) < 15 and
+                            abs(ball.y - cement[1]) < 15):
+                        self.cement_surfaces.remove(cement)
+                        self.cement_filled -= 180
+
+        # Check for game completion and challenges
+        fill_percentage = self.cement_filled / self.total_area
+        print(f"Fill: {int(fill_percentage * 100)}%, Round: {self.round}")
+        if fill_percentage >= 0.9 and self.round <= 8:
+            self.completion_time = pygame.time.get_ticks() - self.start_time
+            total_seconds = self.completion_time // 1000
+
+            if self.round == 8:
+                if total_seconds < 285:  # 4:45 minutes
+                    if self.challenge_deaths == 0 and not self.challenge_power_ups_used and total_seconds < 255:  # 4:15
+                        self.challenge_name = "The Legend"
+                        self.state = "challenge_completed"
+                        print("Challenge 'The Legend' completed!")
+                    elif self.challenge_deaths == 0:
+                        self.challenge_name = "The Myth"
+                        self.state = "challenge_completed"
+                        print("Challenge 'The Myth' completed!")
+                    else:
+                        self.challenge_name = "The Man"
+                        self.state = "challenge_completed"
+                        print("Challenge 'The Man' completed!")
+                else:
+                    self.state = "completed"
+                    print("Game completed! Transitioning to completed menu")
+            else:
+                self.state = "round_complete"
+                print("Round completed, moving to round_complete menu")
+
+        self.screen.fill(BLACK)
+        pygame.draw.rect(self.screen, GRAY, (0, 0, WIDTH, UI_HEIGHT))
+        pygame.draw.rect(self.screen, WHITE, (0, UI_HEIGHT - 2, WIDTH, 2))
+        pygame.draw.rect(self.screen, WHITE, (0, UI_HEIGHT, BOUNDARY_SIZE, BOUNDARY_SIZE), 2)
+
+        for cement in self.cement_surfaces:
+            pygame.draw.circle(self.screen, CEMENT_COLOR, (int(cement[0]), int(cement[1])), 8)
+
+        for ball in self.balls:
+            ball.draw(self.screen)
+        self.generator.draw(self.screen)
+
+        ui_surface = pygame.Surface((WIDTH, UI_HEIGHT), pygame.SRCALPHA)
+        pygame.draw.rect(ui_surface, (255, 255, 255, 50), (0, 0, WIDTH, UI_HEIGHT - 2), 0, 10)
+
+        lives_text = self.small_font.render(f"Lives: {self.lives}", True, BLACK)
+        round_text = self.small_font.render(f"Round: {self.round}/8", True, BLACK)
+        fill_text = self.small_font.render(f"Fill: {int(fill_percentage * 100)}%", True, BLACK)
+        power_up_text = self.tiny_font.render(f"{self.active_power_up or 'None'}", True, BLACK)
+
+        button_surface = pygame.Surface((150, 40), pygame.SRCALPHA)
+        pygame.draw.rect(button_surface, (*ORANGE, 200), (0, 0, 150, 40), 0, 10)
+        pygame.draw.rect(button_surface, WHITE, (0, 0, 150, 40), 1, 10)
+
+        self.screen.blit(ui_surface, (0, 0))
+        self.screen.blit(button_surface, (10, 20))
+        self.screen.blit(lives_text, (85 - lives_text.get_width() // 2, 40 - lives_text.get_height() // 2))
+
+        self.screen.blit(button_surface, (170, 20))
+        self.screen.blit(round_text, (245 - round_text.get_width() // 2, 40 - round_text.get_height() // 2))
+
+        self.screen.blit(button_surface, (330, 20))
+        self.screen.blit(fill_text, (405 - fill_text.get_width() // 2, 40 - fill_text.get_height() // 2))
+
+        small_button = pygame.Surface((80, 40), pygame.SRCALPHA)
+        pygame.draw.rect(small_button, (*ORANGE, 200), (0, 0, 80, 40), 0, 10)
+        pygame.draw.rect(small_button, WHITE, (0, 0, 80, 40), 1, 10)
+        self.screen.blit(small_button, (490, 20))
+        self.screen.blit(power_up_text, (530 - power_up_text.get_width() // 2, 40 - power_up_text.get_height() // 2))
+
+        if self.respawn_timer > 0 and self.lives > 0:
+            countdown = self.font.render(str((self.respawn_timer - 1) // 60 + 1), True, ORANGE)
+            self.screen.blit(countdown, (WIDTH // 2 - countdown.get_width() // 2, HEIGHT // 2))
+
+        if self.power_up_timer > 0:
+            timer_text = self.small_font.render(f"Power-up: {(self.power_up_timer - 1) // FPS + 1}s", True, RED)
+            self.screen.blit(timer_text, (WIDTH // 2 - timer_text.get_width() // 2, UI_HEIGHT + 10))
+
+        pygame.display.flip()
+        self.clock.tick(FPS)
+
+class Generator:
+    def __init__(self):
+        self.reset()
+        self.speed = 5
+        self.alive = True
+        self.last_pos = (self.x, self.y)
+
+    def reset(self):
+        self.x = BOUNDARY_SIZE // 2
+        self.y = BOUNDARY_SIZE // 2 + UI_HEIGHT
+        self.explosion_timer = 0
+        self.alive = True
+        self.last_pos = (self.x, self.y)
+
+    def update(self):
+        keys = pygame.key.get_pressed()
+        moving = False
+        old_x, old_y = self.x, self.y
+
+        if keys[pygame.K_w] and self.y - 20 > UI_HEIGHT:
+            self.y -= self.speed
+            moving = True
+        if keys[pygame.K_s] and self.y + 20 < HEIGHT:
+            self.y += self.speed
+            moving = True
+        if keys[pygame.K_a] and self.x - 20 > 0:
+            self.x -= self.speed
+            moving = True
+        if keys[pygame.K_d] and self.x + 20 < BOUNDARY_SIZE:
+            self.x += self.speed
+            moving = True
+
+        if moving:
+            dx = self.x - self.last_pos[0]
+            dy = self.y - self.last_pos[1]
+            distance = ((dx ** 2) + (dy ** 2)) ** 0.5
+
+            if distance > 0:
+                steps = int(distance / 3) + 1
+                for i in range(steps + 1):
+                    t = i / steps if steps > 0 else 1
+                    cement_x = self.last_pos[0] + dx * t
+                    cement_y = self.last_pos[1] + dy * t
+                    game.cement_surfaces.append((cement_x, cement_y))
+                    game.cement_filled += 180
+
+            self.last_pos = (self.x, self.y)
+
+        if self.explosion_timer > 0:
+            self.explosion_timer -= 1
+            if self.explosion_timer == 0:
+                self.alive = False
+
+    def explode(self):
+        self.explosion_timer = 30
+
+    def draw(self, screen):
+        if self.alive:
+            if self.explosion_timer > 0:
+                center_x, center_y = int(self.x), int(self.y)
+
+                if self.explosion_timer > 20:
+                    pygame.draw.circle(screen, ORANGE, (center_x, center_y), 10)
+                    for angle in range(0, 360, 45):
+                        rad = angle * (3.14159 / 180)
+                        end_x = center_x + int(15 * pygame.math.Vector2(1, 0).rotate(angle).x)
+                        end_y = center_y + int(15 * pygame.math.Vector2(1, 0).rotate(angle).y)
+                        pygame.draw.line(screen, WHITE, (center_x, center_y), (end_x, end_y), 2)
+                elif self.explosion_timer > 10:
+                    pygame.draw.circle(screen, ORANGE, (center_x, center_y), 15)
+                    for _ in range(8):
+                        offset_x = random.randint(-10, 10)
+                        offset_y = random.randint(-10, 10)
+                        pygame.draw.circle(screen, ORANGE, (center_x + offset_x, center_y + offset_y), 3)
+                else:
+                    for _ in range(6):
+                        offset_x = random.randint(-15, 15)
+                        offset_y = random.randint(-15, 15)
+                        alpha = int((self.explosion_timer / 10) * 255)
+                        particle_surface = pygame.Surface((6, 6), pygame.SRCALPHA)
+                        pygame.draw.circle(particle_surface, (255, 165, 0, alpha), (3, 3), 3)
+                        screen.blit(particle_surface, (center_x + offset_x - 3, center_y + offset_y - 3))
+                    flash_radius = int(self.explosion_timer * 1.5)
+                    pygame.draw.circle(screen, WHITE, (center_x, center_y), flash_radius, 1)
+            else:
+                if game.immunity_timer > 0:
+                    bubble_surface = pygame.Surface((40, 40), pygame.SRCALPHA)
+                    pygame.draw.circle(bubble_surface, IMMUNITY_BUBBLE, (20, 20), 20)
+                    screen.blit(bubble_surface, (int(self.x) - 20, int(self.y) - 20))
+
+                pygame.draw.rect(screen, ORANGE, (self.x - 10, self.y - 15, 20, 15))
+                pygame.draw.rect(screen, BLUE, (self.x - 15, self.y, 30, 10))
+                pygame.draw.circle(screen, BLACK, (int(self.x - 7), int(self.y + 15)), 6)
+                pygame.draw.circle(screen, BLACK, (int(self.x + 7), int(self.y + 15)), 6)
+                pygame.draw.circle(screen, WHITE, (int(self.x - 7), int(self.y + 15)), 2)
+                pygame.draw.circle(screen, WHITE, (int(self.x + 7), int(self.y + 15)), 2)
+                pygame.draw.rect(screen, (173, 216, 230), (self.x - 3, self.y - 12, 6, 3))
+
+class Ball:
+    def __init__(self):
+        self.x = random.randint(0, BOUNDARY_SIZE)
+        self.y = random.randint(UI_HEIGHT, HEIGHT)
+        self.speed_x = random.choice([-1.6125, 1.6125])
+        self.speed_y = random.choice([-1.6125, 1.6125])
+        self.color = random.choice([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255)])
+        self.base_speed = 1.6125
+        self.trail = []
+
+    def update(self, slowed=False):
+        speed = self.base_speed / 2 if slowed else self.base_speed
+        self.speed_x = speed if self.speed_x > 0 else -speed
+        self.speed_y = speed if self.speed_y > 0 else -speed
+
+        old_x, old_y = self.x, self.y
+        self.x += self.speed_x
+        self.y += self.speed_y
+
+        self.trail.append((self.x, self.y))
+        if len(self.trail) > 5:
+            self.trail.pop(0)
+
+        if (self.x < 0 or self.x > BOUNDARY_SIZE) and old_x != self.x:
+            game.play_sound(ball_hit_sound)
+            self.speed_x = -self.speed_x
+        if (self.y < UI_HEIGHT or self.y > HEIGHT) and old_y != self.y:
+            game.play_sound(ball_hit_sound)
+            self.speed_y = -self.speed_y
+
+    def draw(self, screen):
+        for i, (trail_x, trail_y) in enumerate(self.trail):
+            trail_surface = pygame.Surface((20, 20), pygame.SRCALPHA)
+            alpha = int(100 - (i * 20))
+            radius = 10 - (i * 2)
+            trail_color = (*self.color[:3], alpha)
+            pygame.draw.circle(trail_surface, trail_color, (10, 10), radius)
+            screen.blit(trail_surface, (int(trail_x) - 10, int(trail_y) - 10))
+
+        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), 10)
+        pygame.draw.circle(screen, WHITE, (int(self.x - 4), int(self.y - 2)), 4)
+        pygame.draw.circle(screen, BLACK, (int(self.x - 4), int(self.y - 2)), 2)
+        pygame.draw.circle(screen, WHITE, (int(self.x - 5), int(self.y - 3)), 1)
+        pygame.draw.circle(screen, WHITE, (int(self.x + 4), int(self.y - 2)), 4)
+        pygame.draw.circle(screen, BLACK, (int(self.x + 4), int(self.y - 2)), 2)
+        pygame.draw.circle(screen, WHITE, (int(self.x + 3), int(self.y - 3)), 1)
+
+if __name__ == "__main__":
+    game = Game()
+    game.run()
